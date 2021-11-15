@@ -6,6 +6,7 @@ get all the swap details within the block range
 
 ```json
 git clone https://github.com/huahuayu/go-swap-statistics.git
+cd go-swap-statistics
 go run main.go
 ```
 
