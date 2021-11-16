@@ -211,6 +211,18 @@ func (client *Client) FilterSwap(pairs []common.Address, fromBlock, toBlock int6
 	return &swapInfos, nil
 }
 
+func (client *Client) TxBlock(txHash common.Hash)(*big.Int,error){
+	receipt, err := client.EthClient.TransactionReceipt(context.Background(), txHash)
+	if err != nil {
+		return nil, err
+	}
+	if receipt != nil{
+		return receipt.BlockNumber,nil
+	}else{
+		return nil, errors.New("transaction not found: " + txHash.String())
+	}
+}
+
 func (client *Client) ParseSwap(pair common.Address, fromBlock int64, toBlock int64) (*[]Swap, error) {
 	pairContractObj, err := pairContract.NewIUniswapV2Pair(pair, client.EthClient)
 	if err != nil {

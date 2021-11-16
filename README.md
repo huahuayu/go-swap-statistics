@@ -10,6 +10,70 @@ cd go-swap-statistics
 go run main.go
 ```
 
+## api
+
+get block by hash
+
+```text
+http://localhost:8080/tx?tx_hash=0xd6c03e92ec778951f4a3d13b75e2a71454d13daae83e1048bcfef8ae7ddff80f
+```
+
+```json
+
+```
+
+get swap info within block
+
+```text
+http://localhost:8080/swaps?pair=0x1b96b92314c44b159149f7e0303511fb2fc4774f&from=12643365&to=12643377 
+```
+
+```json
+[
+  {
+    "blockNumber": 12643366,
+    "txHash": "0x72435e79898b97e9537f408cb2a0aac6ac3de4c744203ed64fc51a7778a4dd26",
+    "index": 1,
+    "pair": {
+      "address": "0x1B96B92314C44b159149f7E0303511fB2Fc4774f",
+      "name": "WBNB-BUSD",
+      "token0": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+      "token1": "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56"
+    },
+    "tokenIn": {
+      "address": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+      "symbol": "WBNB",
+      "decimal": 18,
+      "position": 0,
+      "amount": "864658749306541950"
+    },
+    "tokenOut": {
+      "address": "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56",
+      "symbol": "BUSD",
+      "decimal": 18,
+      "position": 1,
+      "amount": "564278537813833653492"
+    },
+    "sync": {
+      "reserve0": "2182311902354743252393",
+      "reserve1": "1426471059586802372815975",
+      "reserveIn": "2182311902354743252393",
+      "reserveOut": "1426471059586802372815975"
+    },
+    "gas": {
+      "gasPrice": "20000000000",
+      "gasLimit": "334587",
+      "gasUsed": "256381",
+      "txFee": "0.00512762"
+    },
+    "price": {
+      "token0Price": "652.602588323296528",
+      "token1Price": "0.0015323261321553"
+    }
+  }
+]
+```
+
 ## example
 
 after the service up: 

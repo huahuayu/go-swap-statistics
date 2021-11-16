@@ -26,9 +26,43 @@ func main() {
 		WriteTimeout: 1 * time.Minute,
 	}
 	http.HandleFunc("/swaps", swapsHandler)
+	http.HandleFunc("/tx", txHandler)
 	logrus.Info("serve at port: " + global.Port + " using node: " + global.Node)
-	logrus.Info("try visit: http://localhost:" + global.Port+"/swaps?pair=0x1b96b92314c44b159149f7e0303511fb2fc4774f&from=12643365&to=12643377")
+	logrus.Info("get tx block: http://localhost:" + global.Port+"/tx?tx_hash=0xd6c03e92ec778951f4a3d13b75e2a71454d13daae83e1048bcfef8ae7ddff80f")
+	logrus.Info("get swaps in block range: http://localhost:" + global.Port+"/swaps?pair=0x1b96b92314c44b159149f7e0303511fb2fc4774f&from=12643365&to=12643377")
 	srv.ListenAndServe()
+}
+
+func txHandler(w http.ResponseWriter, r *http.Request){
+	logrus.Info("request: ", r.URL.String())
+	txHash, ok := r.URL.Query()["tx_hash"]
+	if !ok || len(txHash[0]) < 1{
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "tx_hash is missing\n")
+		return
+	}
+	blockNumber, err := eth.Cli.TxBlock(common.HexToHash(txHash[0]))
+	if err != nil {
+		w.WriteHeader(400)
+		fmt.Fprintln(w, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	bs, err := json.Marshal(struct {
+		TxHash string `json:"txHash"`
+		BlockNumber uint64 `json:"blockNumber"`
+	}{
+		TxHash:      txHash[0],
+		BlockNumber: blockNumber.Uint64(),
+	})
+	if err != nil {
+		fmt.Fprintf(w,err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(bs)
+	return
 }
 
 func swapsHandler(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +99,6 @@ func swapsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	bs, err := json.Marshal(swap)
 	if err != nil {
-		fmt.Println("e2")
 		fmt.Fprintf(w,err.Error())
 		return
 	}
