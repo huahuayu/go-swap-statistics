@@ -2,16 +2,21 @@ package eth
 
 import (
 	"context"
+	"errors"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 	"math/big"
+	"strconv"
 	"strings"
 	ierc20 "swap-statistics/eth/contract/erc20"
 	pairContract "swap-statistics/eth/contract/pair"
+	"sync"
 )
 
 const (
@@ -47,8 +52,8 @@ type (
 			Address string `json:"address"`
 			Dex     string `json:"-"`
 			Name    string `json:"name"`
-			Token0 string `json:"token0"`
-			Token1 string `json:"token1"`
+			Token0  string `json:"token0"`
+			Token1  string `json:"token1"`
 		} `json:"pair"`
 		TokenIn struct {
 			Address  string `json:"address"`
@@ -70,6 +75,16 @@ type (
 			ReserveIn  string `json:"reserveIn"`
 			ReserveOut string `json:"reserveOut"`
 		} `json:"sync"`
+		Gas struct {
+			GasPrice string `json:"gasPrice"`
+			GasLimit string `json:"gasLimit"`
+			GasUsed  string `json:"gasUsed"`
+			TxFee    string `json:"txFee"`
+		} `json:"gas"`
+		Price struct {
+			Token0Price string `json:"token0Price"`
+			Token1Price string `json:"token1Price"`
+		} `json:"price"`
 	}
 
 	SyncInfo struct {
@@ -144,7 +159,7 @@ func (client *Client) FilterSync(pairs []common.Address, fromBlock, toBlock int6
 	}
 	syncInfos := make([]SyncInfo, 0)
 	for _, l := range logs {
-		if l.Removed{
+		if l.Removed {
 			continue
 		}
 		syncEvent := new(SyncEvent)
@@ -177,7 +192,7 @@ func (client *Client) FilterSwap(pairs []common.Address, fromBlock, toBlock int6
 	}
 	swapInfos := make([]SwapInfo, 0)
 	for _, l := range logs {
-		if l.Removed{
+		if l.Removed {
 			continue
 		}
 		swapEvent := new(SwapEvent)
@@ -248,6 +263,30 @@ func (client *Client) ParseSwap(pair common.Address, fromBlock int64, toBlock in
 	swaps := make([]Swap, 0)
 	for i, s := range *swapInfos {
 		swap := new(Swap)
+		var (
+			receipt *types.Receipt
+			tx      *types.Transaction
+			wg      = &sync.WaitGroup{}
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			receipt, err = client.EthClient.TransactionReceipt(context.Background(), common.HexToHash(s.TxHash))
+			if err != nil {
+				logrus.Error("TransactionReceipt: ", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			tx, _, err = client.EthClient.TransactionByHash(context.Background(), common.HexToHash(s.TxHash))
+			if err != nil {
+				logrus.Error("TransactionByHash: ", err)
+			}
+		}()
+		wg.Wait()
+		if receipt == nil || tx == nil {
+			return nil, errors.New("invalid tx: " + s.TxHash)
+		}
 		if s.SwapEvent.Amount0In.Cmp(big.NewInt(0)) > 0 {
 			swap = &Swap{
 				BlockNumber: s.BlockNumber,
@@ -257,14 +296,14 @@ func (client *Client) ParseSwap(pair common.Address, fromBlock int64, toBlock in
 					Address string `json:"address"`
 					Dex     string `json:"-"`
 					Name    string `json:"name"`
-					Token0 string `json:"token0"`
-					Token1 string `json:"token1"`
+					Token0  string `json:"token0"`
+					Token1  string `json:"token1"`
 				}{
 					Address: pair.String(),
 					Dex:     dex,
 					Name:    symbol0 + "-" + symbol1,
-					Token0: token0Address.String(),
-					Token1: token1Address.String(),
+					Token0:  token0Address.String(),
+					Token1:  token1Address.String(),
 				},
 				TokenIn: struct {
 					Address  string `json:"address"`
@@ -297,12 +336,17 @@ func (client *Client) ParseSwap(pair common.Address, fromBlock int64, toBlock in
 					Reserve1   string `json:"reserve1"`
 					ReserveIn  string `json:"reserveIn"`
 					ReserveOut string `json:"reserveOut"`
-				}(struct {
-					Reserve0   string
-					Reserve1   string
-					ReserveIn  string
-					ReserveOut string
-				}{Reserve0: (*syncInfos)[i].SyncEvent.Reserve0.String(), Reserve1: (*syncInfos)[i].SyncEvent.Reserve1.String(), ReserveIn: (*syncInfos)[i].SyncEvent.Reserve0.String(), ReserveOut: (*syncInfos)[i].SyncEvent.Reserve1.String()}),
+				}{Reserve0: (*syncInfos)[i].SyncEvent.Reserve0.String(), Reserve1: (*syncInfos)[i].SyncEvent.Reserve1.String(), ReserveIn: (*syncInfos)[i].SyncEvent.Reserve0.String(), ReserveOut: (*syncInfos)[i].SyncEvent.Reserve1.String()},
+				Gas: struct {
+					GasPrice string `json:"gasPrice"`
+					GasLimit string `json:"gasLimit"`
+					GasUsed  string `json:"gasUsed"`
+					TxFee    string `json:"txFee"`
+				}{GasPrice: tx.GasPrice().String(), GasLimit: strconv.FormatUint(tx.Gas(), 10), GasUsed: strconv.FormatUint(receipt.GasUsed, 10), TxFee: decimal.NewFromBigInt(tx.GasPrice(), -18).Mul(decimal.NewFromInt(int64(receipt.GasUsed))).String()},
+				Price: struct {
+					Token0Price string `json:"token0Price"`
+					Token1Price string `json:"token1Price"`
+				}{Token0Price: decimal.NewFromBigInt(s.SwapEvent.Amount1Out, -1*int32(decimal1)).Div(decimal.NewFromBigInt(s.SwapEvent.Amount0In, -1*int32(decimal0))).String(), Token1Price: decimal.NewFromInt(1).Div(decimal.NewFromBigInt(s.SwapEvent.Amount1Out, -1*int32(decimal1)).Div(decimal.NewFromBigInt(s.SwapEvent.Amount0In, -1*int32(decimal0)))).String()},
 			}
 		} else {
 			swap = &Swap{
@@ -313,14 +357,14 @@ func (client *Client) ParseSwap(pair common.Address, fromBlock int64, toBlock in
 					Address string `json:"address"`
 					Dex     string `json:"-"`
 					Name    string `json:"name"`
-					Token0 string `json:"token0"`
-					Token1 string `json:"token1"`
+					Token0  string `json:"token0"`
+					Token1  string `json:"token1"`
 				}{
 					Address: pair.String(),
 					Dex:     dex,
 					Name:    symbol0 + "-" + symbol1,
-					Token0: token0Address.String(),
-					Token1: token1Address.String(),
+					Token0:  token0Address.String(),
+					Token1:  token1Address.String(),
 				},
 				TokenIn: struct {
 					Address  string `json:"address"`
@@ -359,6 +403,16 @@ func (client *Client) ParseSwap(pair common.Address, fromBlock int64, toBlock in
 					ReserveIn  string
 					ReserveOut string
 				}{Reserve0: (*syncInfos)[i].SyncEvent.Reserve0.String(), Reserve1: (*syncInfos)[i].SyncEvent.Reserve1.String(), ReserveOut: (*syncInfos)[i].SyncEvent.Reserve0.String(), ReserveIn: (*syncInfos)[i].SyncEvent.Reserve1.String()}),
+				Gas: struct {
+					GasPrice string `json:"gasPrice"`
+					GasLimit string `json:"gasLimit"`
+					GasUsed  string `json:"gasUsed"`
+					TxFee    string `json:"txFee"`
+				}{GasPrice: tx.GasPrice().String(), GasLimit: strconv.FormatUint(tx.Gas(), 10), GasUsed: strconv.FormatUint(receipt.GasUsed, 10), TxFee: decimal.NewFromBigInt(tx.GasPrice(), -18).Mul(decimal.NewFromInt(int64(receipt.GasUsed))).String()},
+				Price: struct {
+					Token0Price string `json:"token0Price"`
+					Token1Price string `json:"token1Price"`
+				}{Token0Price: decimal.NewFromBigInt(s.SwapEvent.Amount1In, -1*int32(decimal1)).Div(decimal.NewFromBigInt(s.SwapEvent.Amount0Out, -1*int32(decimal0))).String(), Token1Price: decimal.NewFromInt(1).Div(decimal.NewFromBigInt(s.SwapEvent.Amount1In, -1*int32(decimal1)).Div(decimal.NewFromBigInt(s.SwapEvent.Amount0Out, -1*int32(decimal0)))).String()},
 			}
 		}
 		swaps = append(swaps, *swap)
