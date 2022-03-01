@@ -18,10 +18,6 @@ get block by hash
 http://localhost:8080/tx?tx_hash=0xd6c03e92ec778951f4a3d13b75e2a71454d13daae83e1048bcfef8ae7ddff80f
 ```
 
-```json
-
-```
-
 get swap info within block
 
 ```text
